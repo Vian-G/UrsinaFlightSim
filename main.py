@@ -927,6 +927,8 @@ class PostFlight(Entity):
 
             # Update flight minutes
             self.new_total_minutes = user_manager.update_flight_minutes(current_user.user_id, minutes_to_add)
+            # Update the currentuser object so that menu is always up to date with DB
+            current_user.flight_minutes = self.new_total_minutes
             # Total minutes needed for levels 1-10
             required_minutes = [0, 2, 4, 7, 10, 13, 16, 19, 22, 25] 
             
@@ -1054,3 +1056,4 @@ if __name__  ==  '__main__':
     user_manager = UserManager()
     LoginScreen(user_manager = user_manager)
     app.run()
+
