@@ -1186,3 +1186,4 @@ if __name__  ==  '__main__':
     user_manager = UserManager()
     LoginScreen(user_manager = user_manager)
     app.run()
+
