@@ -2,7 +2,11 @@ from ursina import *
 
 from re import search
 from matplotlib import pyplot
-
+from pathlib import Path
+from datetime import datetime, timezone
+import csv
+import json
+import shutil
 from matrix import Matrix
 from user_management import User, UserManager
 from plane_management import PlaneManager
@@ -861,6 +865,8 @@ class FlightSimulator(Entity):
 
         # Store data for post-flight analysis
         self.flight_data = {
+            'selected_plane': self.selected_plane,
+            'crashed': self.crashed,
             'time': self.time_data,
             'aoa': self.aoa_data,
             'velocity': self.velocity_data,
@@ -896,7 +902,7 @@ class FlightSimulator(Entity):
 class PostFlight(Entity):
     def __init__(self, flight_data = None):
         super().__init__()
-
+        self.flight_data = flight_data
         title_y = 0.4
         stats_y = 0.325
         graph_y = 0.05
@@ -927,6 +933,8 @@ class PostFlight(Entity):
 
             # Update flight minutes
             self.new_total_minutes = user_manager.update_flight_minutes(current_user.user_id, minutes_to_add)
+            # Update the currentuser object so that menu is always up to date with DB
+            current_user.flight_minutes = self.new_total_minutes
             # Total minutes needed for levels 1-10
             required_minutes = [0, 2, 4, 7, 10, 13, 16, 19, 22, 25] 
             
@@ -980,6 +988,11 @@ class PostFlight(Entity):
         self.quit_button = Button(text = 'Quit', position = (0, -0.4), scale = (0.25, 0.05))
         self.quit_button.on_click = application.quit
 
+       # export button
+        self.export_button = Button(text='Export Flight Log', position=(0, -0.2), scale=(0.3, 0.05))
+        self.export_button.on_click = self.export_flight_log
+        self.export_status_text = Text(text='', position=(0, -0.15), origin=(0, 0), scale=1)
+
         if flight_data:
             self.generate_graphs(flight_data, graph_y)
 
@@ -1021,6 +1034,70 @@ class PostFlight(Entity):
             scale = (graph_size, graph_size/4),  # Match figsize aspect ratio
             position = (0, graph_y),
             z = -1)  # Render behind UI elements
+        def export_flight_log(self):
+          if not self.flight_data:
+              self.export_status_text.text = 'No flight data to export.'
+              return
+  
+          global current_user, flight_time, crashed
+  
+          export_dir = Path('exports')
+          export_dir.mkdir(parents=True, exist_ok=True)
+  
+          ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%SZ')
+          username_safe = (current_user.username if current_user else 'guest').replace(' ', '_')
+          plane_safe = str(self.flight_data.get('selected_plane', 'unknown')).replace(' ', '_')
+          base = f'flight_{ts}_{username_safe}_{plane_safe}'
+  
+          json_path = export_dir / f'{base}.json'
+          csv_path = export_dir / f'{base}.csv'
+          graph_path = export_dir / f'{base}_graphs.png'
+  
+          meta = {
+              'exported_at_utc': ts,
+              'username': current_user.username if current_user else None,
+              'user_id': current_user.user_id if current_user else None,
+              'pilot_level': current_user.level if current_user else None,
+              'selected_plane': self.flight_data.get('selected_plane'),
+              'flight_time_seconds': float(flight_time),
+              'crashed': bool(crashed),
+          }
+  
+          payload = {
+              'meta': meta,
+              'telemetry': {
+                  'time': self.flight_data.get('time', []),
+                  'aoa': self.flight_data.get('aoa', []),
+                  'velocity': self.flight_data.get('velocity', []),
+                  'gforce': self.flight_data.get('gforce', []),
+                  'altitude': self.flight_data.get('altitude', []),
+              },
+          }
+  
+          json_path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+  
+          time_series = payload['telemetry']['time']
+          aoa_series = payload['telemetry']['aoa']
+          vel_series = payload['telemetry']['velocity']
+          gf_series = payload['telemetry']['gforce']
+          alt_series = payload['telemetry']['altitude']
+  
+          row_count = min(len(time_series), len(aoa_series), len(vel_series), len(gf_series), len(alt_series))
+          with csv_path.open('w', newline='', encoding='utf-8') as f:
+              # writting csv
+              writer = csv.writer(f)
+              writer.writerow(['time_s', 'aoa_deg', 'velocity', 'gforce_g', 'altitude_m'])
+              for i in range(row_count):
+                  writer.writerow([time_series[i], aoa_series[i], vel_series[i], gf_series[i], alt_series[i]])
+  
+          if getattr(self, 'graph_png_path', None) and Path(self.graph_png_path).exists():
+              try:
+                  shutil.copyfile(self.graph_png_path, graph_path)
+              except OSError:
+                  pass
+  
+          self.export_status_text.text = f'Exported to: {export_dir.as_posix()}/{base}.*'
+      
         
     def return_to_menu(self):
         destroy(self.title)
@@ -1038,6 +1115,8 @@ class PostFlight(Entity):
         
         destroy(self.menu_button)
         destroy(self.quit_button)
+        destroy(self.export_button)
+        destroy(self.export_status_text)
         destroy(self.graph_entity)
         
         # Reset flight statistics for next session
