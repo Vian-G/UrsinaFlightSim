@@ -533,6 +533,34 @@ class FlightSimulator(Entity):
             position = (0.6, -0.4),
             origin = (0, 0),
             scale = 1.5)
+        
+        self.crosswind_button = Button(
+          parent = camera.ui,
+          text = 'Crosswind: Off',
+          position = (0.75, 0.42),
+          scale = (0.22,0.05),
+          color = color.gray.tint(.1),
+          on_click = self.toggle_crosswind)
+
+        self.wind_text = Text(
+            parent = camera.ui,
+            text = 'Wind: 0 m/s',
+            position = (0.75, 0.36),
+            origin = (0, 0),
+            scale = 1.0)
+    def toggle_crosswind(self):
+        """
+        Crosswind toggle and UI update
+        """
+        self.crosswind_enabled = not self.crosswind_enabled
+        if self.crosswind_enabled:
+            ws = self.weather.randomWind()
+            self.crosswind_button.text = 'Crosswind: On'
+            self.wind_text.text = f'Wind: {ws:.2f} m/s'
+        else:
+            self.weather.calmWind()
+            self.crosswind_button.text = 'Crosswind: Off'
+            self.wind_text.text = 'Wind: 0 m/s'
 
         # Updated instructions text (moved outside loop)
         self.instructions = Text(
@@ -774,6 +802,11 @@ class FlightSimulator(Entity):
         self.plane.position += self.plane.up * vv * self.dt * movment_scale
         self.plane.position += self.plane.right * hv * self.dt * movment_scale
 
+        if self.crosswind_enabled:
+            wind_speed = self.weather.wind_x
+            self.plane.position += self.plane.right * wind_speed * self.dt * movment_scale
+            self.wind_text.text = f'Wind: {wind_speed:.2f} m/s'
+
         if self.plane.x > (self.ground_size / 4) or self.plane.z > (self.ground_size / 4):
             self.plane.x = 0
             self.plane.z = 0
@@ -896,6 +929,26 @@ class FlightSimulator(Entity):
         # Transition to post-flight analysis
         PostFlight(self.flight_data)
 
+# ---------------------------
+#    WEATHER EFFECTS  
+# ---------------------------
+class Weather:
+    """
+    Crosswinds modifier to physics
+    """
+    def __init__(self):
+        self.maxcrosswind = 8.0
+        self.wind_x = 0.0
+
+    def randomWind(self):
+        self.wind_x = random.uniform(-self.maxcrosswind, self.maxcrosswind)
+        # random windspeed between -maxcrosswind and maxcrosswind
+        return self.wind_x
+    def calmWind(self):
+        self.wind_x = 0.0
+        # way to restore calm skies
+        return self.wind_x
+    
 # ---------------------------
 #   POST-FLIGHT ANALYTICS
 # ---------------------------
